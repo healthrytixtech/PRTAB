@@ -1,0 +1,22 @@
+version: '3.18'
+
+services: 
+  backend:
+    build: ./backend
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://wellness_dev:${POSTGRES_PASSWORD}@EXISTING_PG_CONTAINER_NAME:5432/wellness_prod
+      SECRET_KEY: ${SECRET_KEY}
+
+  frontend:
+    build: 
+      context: ./web
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    restart: always
+    networks:
+      - your_existing_network_name
+
+networks:
+  your_existing_network_name:
+    external: true  # This tells Docker the network already exists      
