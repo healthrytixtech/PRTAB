@@ -1,125 +1,104 @@
-# Mental Wellness — Full Stack App
+# PRISMA (PRTAB) — Mental Wellness Web App
 
-AI-powered mental wellness web app with **User**, **Professional**, and **Admin** roles. Built from Stitch ZIP exports, merged into a single Next.js + FastAPI stack.
+Production-oriented full-stack prototype for a privacy-first mental wellness experience.
 
-## Architecture Overview
+- **Frontend**: Next.js (`web/`)
+- **Backend API**: FastAPI (`backend/`)
+- **Local orchestration**: Docker Compose (`docker-compose.yml`)
+- **CI/CD**: GitHub Actions builds + tests + pushes images to GHCR (`.github/workflows/ci-cd.yml`)
 
-- **Frontend**: Next.js (App Router) + Tailwind. Role-based routes: `/user`, `/professional`, `/admin`.
-- **Backend**: FastAPI. REST APIs for auth, assessment, chat, triage, admin (no animations/motion).
-- **Database**: SQLite by default (dev); PostgreSQL for production. Separate identity and clinical data; encryption-ready fields.
-- **AI**: Pluggable chatbot adapter; sentiment + risk scoring; mock model first.
-- **Voice**: WebRTC-ready UI; call lifecycle in professional session page.
-- **Notifications**: Email service (mock in dev); in-app notifications.
+## Quick start (recommended)
 
-## Setup
+Run the whole stack with Docker:
 
-### Prerequisites
+```bash
+docker compose up --build
+```
 
-- Node 18+, Python 3.11+
-- (Optional) PostgreSQL for production
+- **Frontend**: `http://localhost:3000`
+- **Backend**: `http://localhost:8000`
+- **Backend docs**: `http://localhost:8000/docs`
 
-### 1. Backend
+## Local dev (without Docker)
+
+### Backend (FastAPI)
 
 ```bash
 cd backend
 python -m venv .venv
-.venv\Scripts\activate   # Windows
-# source .venv/bin/activate  # macOS/Linux
-pip install -r requirements.txt
-cp ../.env.example .env
-# Edit .env: SECRET_KEY, DATABASE_URL (postgresql for prod)
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+.venv\Scripts\activate
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Backend: **http://localhost:8000** — Docs: **http://localhost:8000/docs**
+The backend reads environment variables from `backend/.env` (see `backend/app/config.py`).
 
-### 2. Frontend
+### Frontend (Next.js)
 
 ```bash
 cd web
-npm install
-cp .env.local.example .env.local
-# Set NEXT_PUBLIC_API_URL=http://localhost:8000
+npm ci
 npm run dev
 ```
 
-Frontend: **http://localhost:3000**
+The frontend is built to use `NEXT_PUBLIC_API_URL` (see `docker-compose.yml` for the default local value).
 
-### 3. Seed data
+## Core API endpoints
 
-From backend directory:
+- **Health**: `GET /health`
+- **Auth**:
+  - `POST /auth/signup`
+  - `POST /auth/login`
+  - `GET /auth/me` (requires `Authorization: Bearer <token>`)
+- **Assessment**: `POST /assessment/submit`
+- **Chat**: `POST /chat/message`
+- **Admin**:
+  - `GET /admin/queue` (admin only)
+  - `GET /admin/analytics` (admin only)
+- **Professional requests**:
+  - `POST /chat-requests` (authenticated user)
+  - `GET /chat-requests/mine` (authenticated user)
+  - `GET /chat-requests` (admin only)
+  - `PUT /chat-requests/{id}/assign` (admin only)
+  - `PUT /chat-requests/{id}/schedule` (professional only)
+
+## Running tests
+
+Backend tests (pytest):
 
 ```bash
 cd backend
-python scripts/seed.py
+.venv\Scripts\python.exe -m pytest -q
 ```
 
-Dummy accounts:
+## Environment variables (high level)
 
-| Role         | Email              | Password |
-|-------------|--------------------|----------|
-| Admin       | admin@wellness.local | admin123 |
-| User        | user@wellness.local  | user123  |
-| Professional (approved) | pro2@wellness.local | pro123  |
-| Professional (pending)   | pro@wellness.local  | pro123  |
+Backend (`backend/.env`):
+- **`DATABASE_URL`**: defaults to SQLite; use Postgres in production (e.g. `postgresql+psycopg2://...`)
+- **`SECRET_KEY`**: required for legacy JWT signing (use a long random value)
+- **`CORS_ORIGINS`**: comma-separated origins (set to your deployed frontend URL(s))
+- **`CLERK_JWKS_URL`**: if using Clerk JWT verification on backend
 
-## API Documentation
+Frontend (`web/` build/runtime):
+- **`NEXT_PUBLIC_API_URL`**: backend base URL reachable from the browser
+- **Clerk**: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` (if enabled)
 
-- **Health**: `GET /health`
-- **Auth**:  
-  - `POST /auth/signup` — body: `{ "email?", "phone?", "password?", "role": "user"|"professional", "is_anonymous?": false }`  
-  - `POST /auth/login` — body: `{ "email?", "password?" }` (empty for anonymous)  
-  - `GET /auth/me` — header: `Authorization: Bearer <token>`
-- **Assessment**: `POST /assessment/submit` — body: `{ "answers": { "sleep": "...", "mood": "...", "support": "..." } }` → returns `{ "redirect": "/user"|"/user/support", "triage_label?" }`
-- **Chat**: `POST /chat/message` — body: `{ "message": "..." }` → `{ "reply": "..." }`
+## CI/CD (GitHub Actions)
 
-Triage is internal (Green/Yellow/Red). Users are redirected by severity; labels are not exposed in UI.
+Workflow: `./.github/workflows/ci-cd.yml`
 
-## Minimal end-to-end flow
+- Runs **frontend typecheck + lint**
+- Runs **backend pytest**
+- Builds and pushes Docker images to **GitHub Container Registry (GHCR)**
+- Deploy step is scaffolded (SSH-based) and can be enabled when a server is ready
 
-1. **User signup** → `/role` → choose “Seeking support” → `/login` → Continue Anonymously or Sign up with Email.
-2. **Assessment** → `/user` → “Start quick check” → `/user/assessment` → submit answers → backend triage → redirect to `/user` or `/user/support`.
-3. **Chat** → `/user/chat` → send message → backend mock chatbot reply.
-4. **Admin queue** → `/admin` (live queue, assign users to professionals; real-time via WebSockets when implemented).
+## Repo layout
 
-## Project layout
-
-```
+```text
 PRTAB/
-├── web/                 # Next.js
-│   ├── app/
-│   │   ├── user/         # User pages (home, chat, wellness, support, assessment)
-│   │   ├── professional/  # Dashboard, verify, session/[id], cases, schedule)
-│   │   ├── admin/        # Triage dashboard, analytics
-│   │   ├── role/         # Role selection
-│   │   └── login/        # Signup / login
-│   └── lib/              # api, types
-├── backend/              # FastAPI
-│   ├── app/
-│   │   ├── routers/      # auth, assessment, chat
-│   │   ├── ai/          # chatbot, risk (triage)
-│   │   ├── models.py
-│   │   ├── schemas.py
-│   │   ├── auth.py
-│   │   ├── config.py
-│   │   └── database.py
-│   └── main.py
-├── scripts/
-│   ├── dev.bat          # Start backend + frontend (Windows)
-│   └── seed.py          # Dummy users, professionals
-├── STITCH_ZIP_MAPPING.md
-└── .env.example
+├── backend/                 # FastAPI service
+├── web/                     # Next.js app
+├── docker-compose.yml        # Local orchestration
+├── .github/workflows/ci-cd.yml
+└── STITCH_ZIP_MAPPING.md     # Mapping from Stitch export → app structure
 ```
-
-## Non-functional
-
-- Data privacy first; anonymization by default.
-- Encryption-ready fields; rate limiting and audit logging to be extended.
-- No animations or motion elements added.
-
-## Production
-
-- Set `DATABASE_URL` to PostgreSQL.
-- Set `SECRET_KEY` to a long random value.
-- Set `CORS_ORIGINS` to your frontend origin(s).
-- Configure `OPENAI_API_KEY` and/or email provider as needed.

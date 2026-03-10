@@ -1,22 +1,53 @@
-version: '3.18'
+# MindfulPath - Local Docker Compose
+# Usage: docker compose up --build
+# Both services use env vars from their respective .env files.
 
-services: 
+services:
+  # ─── FastAPI Backend ─────────────────────────────────────────────────────────
   backend:
-    build: ./backend
-    restart: always
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mindfulpath_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount backend dir for hot-reload changes & persist SQLite DB
+      - ./backend:/app
+      # Exclude .venv from the volume mount so container uses its own installed deps
+      - /app/.venv
+    env_file:
+      - ./backend/.env
     environment:
-      DATABASE_URL: postgresql://wellness_dev:${POSTGRES_PASSWORD}@EXISTING_PG_CONTAINER_NAME:5432/wellness_prod
-      SECRET_KEY: ${SECRET_KEY}
+      # Override CORS to allow requests from the frontend container & host browser
+      CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000,http://frontend:3000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
+  # ─── Next.js Frontend ────────────────────────────────────────────────────────
   frontend:
-    build: 
+    build:
       context: ./web
+      dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-    restart: always
-    networks:
-      - your_existing_network_name
-
-networks:
-  your_existing_network_name:
-    external: true  # This tells Docker the network already exists      
+        # Baked into the Next.js build at compile time.
+        # Must point to what the USER'S BROWSER can reach — so localhost:8000 via port mapping.
+        NEXT_PUBLIC_API_URL: "http://localhost:8000"
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}"
+    container_name: mindfulpath_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      # Runtime env for server-side Clerk verification
+      CLERK_SECRET_KEY: "${CLERK_SECRET_KEY}"
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}"
+    depends_on:
+      backend:
+        condition: service_healthy
